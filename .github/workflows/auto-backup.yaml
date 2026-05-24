@@ -1,0 +1,97 @@
+# ==============================
+# 仓库自动镜像备份（终极优化版）
+# 全局强制Node.js 24 | 彻底解决文件找不到问题 | 全程你的权限 | 精准保留自身脚本
+# ==============================
+name: 仓库自动镜像备份
+
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+# ==============================
+# 全局配置：强制所有Action使用Node.js 24（解决Node 20停止支持问题）
+# ==============================
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  GITHUB_TOKEN: ${{ secrets.BACKUP_ROBOT }}
+
+jobs:
+  sync-backup:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # --------------------------
+      # 步骤1：拉取代码（全程使用你的令牌权限）
+      # --------------------------
+      - name: 拉取备份仓库代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.BACKUP_ROBOT }}
+          persist-credentials: false
+
+      # --------------------------
+      # 步骤2：全局配置Git权限
+      # --------------------------
+      - name: 配置Git全局权限
+        run: |
+          git config --global user.name "备份同步机器人"
+          git config --global user.email "27704534@qq.com"
+          git remote set-url origin https://x-access-token:${{ env.GITHUB_TOKEN }}@github.com/27704534/nomdn.github.io-backup.git
+
+      # --------------------------
+      # 步骤3：先备份你自己的备份脚本（核心修复！）
+      # --------------------------
+      - name: 备份自身工作流脚本
+        run: |
+          # 把你的备份脚本复制到临时目录，不会被上游覆盖
+          mkdir -p /tmp/backup
+          cp -f .github/workflows/auto-backup.yaml /tmp/backup/
+          echo "✅ 自身备份脚本已保存到临时目录"
+
+      # --------------------------
+      # 步骤4：拉取并同步上游仓库所有代码
+      # --------------------------
+      - name: 同步上游仓库最新代码
+        run: |
+          git remote add upstream https://github.com/AloneGoatProject/nomdn.github.io.git
+          git fetch upstream
+          git checkout main
+          git reset --hard upstream/main
+          echo "✅ 上游代码已完全同步"
+
+      # --------------------------
+      # 步骤5：恢复你自己的备份脚本（从临时目录恢复）
+      # --------------------------
+      - name: 恢复自身工作流脚本
+        run: |
+          # 从临时目录恢复你的备份脚本
+          mkdir -p .github/workflows
+          cp -f /tmp/backup/auto-backup.yaml .github/workflows/
+          # 提交恢复的脚本（否则不会被推送）
+          git add .github/workflows/auto-backup.yaml
+          git commit -m "恢复自动备份脚本（不被上游覆盖）" || true
+          echo "✅ 自身备份脚本已恢复"
+
+      # --------------------------
+      # 步骤6：全量推送（全程你的权限，无任何报错）
+      # --------------------------
+      - name: 推送备份到仓库
+        run: |
+          git push --force origin --all
+          git push --force origin --tags
+          echo "🎉 本次定时同步备份任务全部结束"
+
+      # --------------------------
+      # 步骤7：失败告警
+      # --------------------------
+      - name: 同步结果检测
+        if: always()
+        run: |
+          if [[ ${{ job.status }} == "failure" ]]; then
+            echo "❌ 备份失败，请检查仓库地址和令牌权限"
+            exit 1
+          else
+            echo "💯 本次同步任务圆满成功"
+          fi
